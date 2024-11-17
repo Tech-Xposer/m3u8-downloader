@@ -1,12 +1,13 @@
 import tkinter as tk
-import re
 from tkinter import filedialog, messagebox
 import sqlite3
 import os
 import subprocess
 import csv
 from threading import Thread
-import os
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 class M3U8DownloaderApp:
 
@@ -14,59 +15,82 @@ class M3U8DownloaderApp:
         self.root = root
         self.root.title("M3U8 Downloader")
         self.root.geometry("500x400")
-        
+
         self.db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "videos.db")
-        
+        self.txt_file = None
+        self.dest_folder = None
+
         # Setup the UI
+        self.create_menu()
         self.create_widgets()
 
         # Initialize the database
         self.init_db()
 
+    def create_menu(self):
+        menu_bar = tk.Menu(self.root)
+
+        # File menu
+        file_menu = tk.Menu(menu_bar, tearoff=0)
+        file_menu.add_command(label="Open M3U8 File", command=self.select_txt_file)
+        file_menu.add_command(label="Export to CSV", command=self.export_db_to_csv)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.root.quit)
+        menu_bar.add_cascade(label="File", menu=file_menu)
+
+        # Help menu
+        help_menu = tk.Menu(menu_bar, tearoff=0)
+        help_menu.add_command(label="About", command=self.show_about)
+        help_menu.add_command(label="Readme", command=self.show_readme)
+        menu_bar.add_cascade(label="Help", menu=help_menu)
+
+        # Set the menu
+        self.root.config(menu=menu_bar)
+
     def create_widgets(self):
-        # Button to select M3U8 playlist file
         self.txt_file_button = tk.Button(self.root, text="Select M3U8 Playlist File", command=self.select_txt_file)
         self.txt_file_button.pack(pady=10)
 
-        # Button to select destination folder
         self.dest_folder_button = tk.Button(self.root, text="Select Destination Folder", command=self.select_destination_folder)
         self.dest_folder_button.pack(pady=10)
 
-        # Button to start downloading videos
         self.download_button = tk.Button(self.root, text="Download Videos", command=self.start_download_thread)
         self.download_button.pack(pady=10)
 
-        # Button to export database to CSV
         self.export_button = tk.Button(self.root, text="Export Database to CSV", command=self.export_db_to_csv)
         self.export_button.pack(pady=10)
 
-        # Listbox to view the database contents
         self.db_listbox_label = tk.Label(self.root, text="Database Entries:")
         self.db_listbox_label.pack(pady=5)
 
         self.db_listbox = tk.Listbox(self.root, height=8, width=50)
         self.db_listbox.pack(pady=5)
 
-        # Button to refresh the listbox
         self.refresh_button = tk.Button(self.root, text="Refresh Database", command=self.refresh_db_list)
         self.refresh_button.pack(pady=10)
 
-        # Status label to display ongoing operations
         self.status_label = tk.Label(self.root, text="Status: Waiting for input...", wraplength=300)
         self.status_label.pack(pady=10)
 
+        # Dropdown to select the number of simultaneous downloads
+        self.concurrent_downloads_label = tk.Label(self.root, text="Simultaneous Downloads:")
+        self.concurrent_downloads_label.pack(pady=5)
+
+        self.concurrent_downloads_var = tk.IntVar(value=1)  # Default value is 1
+        self.concurrent_downloads_menu = tk.OptionMenu(self.root, self.concurrent_downloads_var, *[1, 2, 3, 4, 5])
+        self.concurrent_downloads_menu.pack(pady=5)
+
     def init_db(self):
-        # Initialize SQLite database with the required table
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        c.execute(''' 
-            CREATE TABLE IF NOT EXISTS videos ( 
-                id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                name TEXT, 
-                status TEXT, 
-                logo TEXT, 
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS videos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT,
+                status TEXT,
+                logo TEXT,
                 group_title TEXT
-            ) 
+            )
         ''')
         conn.commit()
         conn.close()
@@ -84,8 +108,7 @@ class M3U8DownloaderApp:
             self.update_status(f"Destination folder selected: {folder_path}")
 
     def start_download_thread(self):
-        # This will start the download process in a separate thread
-        if hasattr(self, 'txt_file') and hasattr(self, 'dest_folder'):
+        if self.txt_file and self.dest_folder:
             self.update_status("Downloading...")
             Thread(target=self.download_videos).start()
         else:
@@ -93,19 +116,36 @@ class M3U8DownloaderApp:
 
     def update_status(self, message):
         self.status_label.config(text=f"Status: {message}")
-    def sanitize_filename(self, filename):
-        # Replace spaces with underscores
-        filename = filename.replace(" ", "_")
-        # Remove characters not allowed in file names
-        return re.sub(r'[<>:"/\\|?*]', '', filename)
+        self.root.update_idletasks()
+
+    def download_videos(self):
+        with open(self.txt_file, 'r') as file:
+            self.lines_iterator = iter(file.readlines())
+            video_infos = []
+
+            for line in self.lines_iterator:
+                if line.startswith("#EXTINF:"):
+                    video_info = self.parse_video_info(line)
+                    if video_info:
+                        video_infos.append(video_info)
+
+            max_threads = self.concurrent_downloads_var.get()
+
+            with ThreadPoolExecutor(max_workers=max_threads) as executor:
+                future_to_video = {executor.submit(self.download_video, info): info for info in video_infos}
+
+                for future in as_completed(future_to_video):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        video_info = future_to_video[future]
+                        print(f"Error downloading {video_info['name']}: {e}")
 
     def parse_video_info(self, line):
-        video_info = {}
         try:
-            # Regex to extract attributes like tvg-name, tvg-logo, and group-title
+            video_info = {}
             pattern = r'(\w+-\w+|group-title)="(.*?)"'
             attributes = re.findall(pattern, line)
-
             for key, value in attributes:
                 if key == 'tvg-name':
                     video_info['name'] = self.sanitize_filename(value)
@@ -113,47 +153,28 @@ class M3U8DownloaderApp:
                     video_info['logo'] = value
                 elif key == 'group-title':
                     video_info['group_title'] = value
-
-            # Get the video URL from the next line
             video_info['url'] = next(self.lines_iterator).strip()
-
             return video_info
         except Exception as e:
             print(f"Error parsing video info: {e}")
             return {}
 
+    def sanitize_filename(self, filename):
+        return re.sub(r'[<>:"/\\|?*]', '', filename.replace(" ", "_"))
+
     def download_video(self, video_info):
         video_url = video_info['url']
         video_name = video_info['name']
-        dest_folder = self.dest_folder
-
-        # Create a valid file path
-        video_file_path = os.path.join(dest_folder, f"{video_name}.mp4")
-
+        video_path = os.path.join(self.dest_folder, f"{video_name}.mp4")
         try:
-            # Using FFmpeg to download the video
-            command = ['ffmpeg', '-i', video_url, '-c', 'copy', video_file_path]
-            subprocess.run(command, check=True)
-            
+            subprocess.run(['ffmpeg', '-i', video_url, '-c', 'copy', video_path], check=True)
             self.save_video_info(video_info, 'Downloaded')
             self.update_status(f"Downloaded: {video_name}")
         except Exception as e:
-            print(f"Error downloading {video_name}: {e}")
             self.save_video_info(video_info, 'Failed')
             self.update_status(f"Failed: {video_name}")
 
-    def download_videos(self):
-        # Open the M3U file and process the contents
-        with open(self.txt_file, 'r') as file:
-            self.lines_iterator = iter(file.readlines())
-            for line in self.lines_iterator:
-                if line.startswith("#EXTINF:"):
-                    video_info = self.parse_video_info(line)
-                    if video_info:
-                        self.download_video(video_info)
-
     def save_video_info(self, video_info, status):
-        # Insert the video information into the database
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute('''
@@ -164,38 +185,44 @@ class M3U8DownloaderApp:
         conn.close()
 
     def refresh_db_list(self):
-        # Refresh the listbox with the latest database entries
         self.db_listbox.delete(0, tk.END)
-
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        c.execute("SELECT id, name, status FROM videos")
+        c.execute("SELECT name, status FROM videos")
         rows = c.fetchall()
         conn.close()
-
-        # Add the video names and statuses to the listbox
-        for row in rows:
-            self.db_listbox.insert(tk.END, f"{row[1]} ({row[2]})")
+        for name, status in rows:
+            self.db_listbox.insert(tk.END, f"{name} ({status})")
 
     def export_db_to_csv(self):
-        # Export the database content to CSV
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("SELECT * FROM videos")
         rows = c.fetchall()
-
         with open('video_info.csv', 'w', newline='', encoding='utf-8') as csvfile:
-            csv_writer = csv.writer(csvfile)
-            csv_writer.writerow(['ID', 'Name', 'Status', 'Logo', 'Group Title'])
-            csv_writer.writerows(rows)
-
+            writer = csv.writer(csvfile)
+            writer.writerow(['ID', 'Name', 'Status', 'Logo', 'Group Title'])
+            writer.writerows(rows)
         conn.close()
         self.update_status("Database exported to video_info.csv.")
+
+    def show_about(self):
+        messagebox.showinfo("About", "M3U8 Downloader\nVersion 1.0\nCreated by Your Name")
+
+    def show_readme(self):
+        readme_text = "This application downloads videos from M3U8 playlists.\n\n" \
+                      "1. Use 'Open M3U8 File' to load a playlist.\n" \
+                      "2. Set a destination folder.\n" \
+                      "3. Start downloading.\n" \
+                      "4. Export database to CSV using the 'Export to CSV' option."
+        messagebox.showinfo("Readme", readme_text)
+
 
 def run_app():
     root = tk.Tk()
     app = M3U8DownloaderApp(root)
     root.mainloop()
+
 
 if __name__ == "__main__":
     run_app()
