@@ -7,6 +7,7 @@ import csv
 from threading import Thread
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import requests  # Ensure this library is installed
 
 
 class M3U8DownloaderApp:
@@ -14,7 +15,7 @@ class M3U8DownloaderApp:
     def __init__(self, root):
         self.root = root
         self.root.title("M3U8 Downloader")
-        self.root.geometry("500x400")
+        self.root.geometry("600x500")
 
         self.db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "videos.db")
         self.txt_file = None
@@ -57,8 +58,6 @@ class M3U8DownloaderApp:
         self.download_button = tk.Button(self.root, text="Download Videos", command=self.start_download_thread)
         self.download_button.pack(pady=10)
 
-        self.export_button = tk.Button(self.root, text="Export Database to CSV", command=self.export_db_to_csv)
-        self.export_button.pack(pady=10)
 
         self.db_listbox_label = tk.Label(self.root, text="Database Entries:")
         self.db_listbox_label.pack(pady=5)
@@ -126,6 +125,7 @@ class M3U8DownloaderApp:
             for line in self.lines_iterator:
                 if line.startswith("#EXTINF:"):
                     video_info = self.parse_video_info(line)
+                    print(video_info)
                     if video_info:
                         video_infos.append(video_info)
 
@@ -144,7 +144,7 @@ class M3U8DownloaderApp:
     def parse_video_info(self, line):
         try:
             video_info = {}
-            pattern = r'(\w+-\w+|group-title)="(.*?)"'
+            pattern = r'(tvg-\w+|group-title)="(.*?)"'
             attributes = re.findall(pattern, line)
             for key, value in attributes:
                 if key == 'tvg-name':
@@ -167,9 +167,12 @@ class M3U8DownloaderApp:
         video_name = video_info['name']
         video_path = os.path.join(self.dest_folder, f"{video_name}.mp4")
         try:
+            logo_path = os.path.join(self.dest_folder, f"{video_info['name']}.png")
+            self.download_logo(video_info['logo'], logo_path)
             subprocess.run(['ffmpeg', '-i', video_url, '-c', 'copy', video_path], check=True)
             self.save_video_info(video_info, 'Downloaded')
             self.update_status(f"Downloaded: {video_name}")
+
         except Exception as e:
             self.save_video_info(video_info, 'Failed')
             self.update_status(f"Failed: {video_name}")
@@ -207,7 +210,7 @@ class M3U8DownloaderApp:
         self.update_status("Database exported to video_info.csv.")
 
     def show_about(self):
-        messagebox.showinfo("About", "M3U8 Downloader\nVersion 1.0\nCreated by Your Name")
+        messagebox.showinfo("About", "M3U8 Downloader\nVersion 1.0\nCreated by Ashutosh Sharma")
 
     def show_readme(self):
         readme_text = "This application downloads videos from M3U8 playlists.\n\n" \
@@ -217,12 +220,21 @@ class M3U8DownloaderApp:
                       "4. Export database to CSV using the 'Export to CSV' option."
         messagebox.showinfo("Readme", readme_text)
 
-
-def run_app():
-    root = tk.Tk()
-    app = M3U8DownloaderApp(root)
-    root.mainloop()
+    def download_logo(self, logo_url, save_path):
+        try:
+            response = requests.get(logo_url, stream=True, timeout=10)
+            response.raise_for_status()  # Raise exception for HTTP errors
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)  # Ensure the folder exists
+            with open(save_path, 'wb') as logo_file:
+                for chunk in response.iter_content(1024):
+                    logo_file.write(chunk)
+            self.update_status(f"Logo saved: {save_path}")
+        except requests.exceptions.RequestException as e:
+            print(f"Failed to download logo: {e}")
+            self.update_status(f"Failed to download logo: {logo_url}")
 
 
 if __name__ == "__main__":
-    run_app()
+    root = tk.Tk()
+    app = M3U8DownloaderApp(root)
+    root.mainloop()
