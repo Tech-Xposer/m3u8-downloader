@@ -173,7 +173,7 @@ class M3U8DownloaderApp:
         video_url = video_info['url']
         video_name = video_info['name']
         video_path = os.path.join(self.dest_folder, f"{video_name}.mp4")
-        subtitle_path = os.path.join(self.subtitle_folder, f"{video_name}_hindi.srt")
+        subtitle_path = os.path.join(self.subtitle_folder, f"{video_name}_eng.srt")
 
         try:
             logo_path = os.path.join(self.dest_folder, f"{video_info['name']}.png")
@@ -182,7 +182,7 @@ class M3U8DownloaderApp:
             self.save_video_info(video_info, 'Downloaded')
             self.update_status(f"Downloaded: {video_name}")
             #downloading subtitles
-            subprocess.run(['ffmpeg', '-i', video_url, '-map', '0:s:0', subtitle_path], check=True)
+            subprocess.run(['ffmpeg', '-i', video_url, '-map', '0:s:m:language:eng', subtitle_path], check=True)
             self.update_status(f"Downloaded subtitles: {video_name}")
 
         except Exception as e:

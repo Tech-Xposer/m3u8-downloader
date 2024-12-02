@@ -5,7 +5,7 @@ a = Analysis(
     ['M3u8_Downloader.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('videos.db', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
