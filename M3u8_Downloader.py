@@ -36,6 +36,7 @@ class M3U8DownloaderApp:
         file_menu = tk.Menu(menu_bar, tearoff=0)
         file_menu.add_command(label="Open M3U8 File", command=self.select_txt_file)
         file_menu.add_command(label="Export to CSV", command=self.export_db_to_csv)
+        file_menu.add_command(label="Clear History", command=self.clear_history)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
         menu_bar.add_cascade(label="File", menu=file_menu)
@@ -208,7 +209,14 @@ class M3U8DownloaderApp:
         conn.close()
         for name, status in rows:
             self.db_listbox.insert(tk.END, f"{name} ({status})")
-
+    def clear_history(self):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("DELETE FROM videos")
+        conn.commit()
+        conn.close()
+        self.update_status("Database cleared.")
+        self.refresh_db_list()
     def export_db_to_csv(self):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
