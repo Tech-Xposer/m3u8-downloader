@@ -35,6 +35,7 @@ class M3U8DownloaderApp:
         # File menu
         file_menu = tk.Menu(menu_bar, tearoff=0)
         file_menu.add_command(label="Open M3U8 File", command=self.select_txt_file)
+        file_menu.add_command(label="Import from CSV", command=self.import_db_from_csv)
         file_menu.add_command(label="Export to CSV", command=self.export_db_to_csv)
         file_menu.add_command(label="Clear History", command=self.clear_history)
         file_menu.add_separator()
@@ -228,7 +229,22 @@ class M3U8DownloaderApp:
             writer.writerows(rows)
         conn.close()
         self.update_status("Database exported to video_info.csv.")
-
+    def import_db_from_csv(self):
+        file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
+        if file_path:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            with open(file_path, 'r', newline='', encoding='utf-8') as csvfile:
+                reader = csv.reader(csvfile)
+                next(reader)  # Skip the header row
+                c.executemany('''
+                    INSERT INTO videos (id, name, status, logo, group_title)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', reader)
+            conn.commit()
+            conn.close()
+            self.update_status("Database imported from video_info.csv.")
+            self.refresh_db_list()
     def show_about(self):
         messagebox.showinfo("About", "M3U8 Downloader\nVersion 1.0\nCreated by Ashutosh Sharma")
 
