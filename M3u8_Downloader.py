@@ -178,18 +178,51 @@ class M3U8DownloaderApp:
         subtitle_path = os.path.join(self.subtitle_folder, f"{video_name}_eng.srt")
 
         try:
+            # Download logo
             logo_path = os.path.join(self.dest_folder, f"{video_info['name']}.png")
             self.download_logo(video_info['logo'], logo_path)
-            subprocess.run(['ffmpeg', '-i', video_url, '-c', 'copy', video_path], check=True)
+
+            # Download video with English audio
+            try:
+                subprocess.run([
+                    'ffmpeg', 
+                    '-i', video_url, 
+                    '-map', '0:a:m:language:eng',  # Map only English audio track
+                    '-c:a', 'copy',                # Copy audio codec to preserve quality
+                    '-map', '0:v',                 # Include video track
+                    '-c:v', 'copy',                # Copy video codec
+                    video_path
+                ], check=True, stderr=subprocess.PIPE)
+                self.update_status(f"Downloaded: {video_name}")
+            except subprocess.CalledProcessError as e:
+                self.update_status(f"Video download failed: {video_name}")
+                print(f"FFmpeg video error: {e.stderr.decode()}")
+                # Optionally, you might want to raise the error or handle it differently
+                raise
+
+            # Download subtitles
+            try:
+                subprocess.run([
+                    'ffmpeg', 
+                    '-i', video_url, 
+                    '-map', '0:s:m:language:eng',  # Map only English subtitles
+                    '-c', 'srt',                   # Ensure SRT output
+                    subtitle_path
+                ], check=True, stderr=subprocess.PIPE)
+                self.update_status(f"Downloaded subtitles: {video_name}")
+            except subprocess.CalledProcessError as e:
+                self.update_status(f"Subtitle download failed: {video_name}")
+                print(f"FFmpeg subtitle error: {e.stderr.decode()}")
+                # Optionally, you might want to continue or handle this differently
+
+            # Save successful download info
             self.save_video_info(video_info, 'Downloaded')
-            self.update_status(f"Downloaded: {video_name}")
-            #downloading subtitles
-            subprocess.run(['ffmpeg', '-i', video_url, '-map', '0:s:m:language:eng', subtitle_path], check=True)
-            self.update_status(f"Downloaded subtitles: {video_name}")
 
         except Exception as e:
+            # Catch any unexpected errors
             self.save_video_info(video_info, 'Failed')
             self.update_status(f"Failed: {video_name}")
+            print(f"Unexpected error: {str(e)}")
 
     def save_video_info(self, video_info, status):
         conn = sqlite3.connect(self.db_path)
