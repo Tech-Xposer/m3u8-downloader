@@ -235,8 +235,7 @@ class M3U8DownloaderApp:
             conn = sqlite3.connect(self.db_path)
             c = conn.cursor()
             with open(file_path, 'r', newline='', encoding='utf-8') as csvfile:
-                reader = csv.reader(csvfile)
-                next(reader)  # Skip the header row
+                next(reader)  # Skip the heagit pder row
                 c.executemany('''
                     INSERT INTO videos (id, name, status, logo, group_title)
                     VALUES (?, ?, ?, ?, ?)
